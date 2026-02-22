@@ -5,12 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
+    "server": "nodemon server/server.js",
+    "backend": "node server/server.js",
+    "seed": "node server/seed.js",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "autoprefixer": "^10.4.24",
+    "better-sqlite3": "^12.6.2",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
     "framer-motion": "^12.34.3",
     "jspdf": "^4.2.0",
     "leaflet": "^1.9.4",
@@ -33,6 +42,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "nodemon": "^3.1.14",
     "vite": "^7.3.1"
   }
 }

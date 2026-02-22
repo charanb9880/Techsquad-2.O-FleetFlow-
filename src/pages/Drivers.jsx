@@ -13,9 +13,8 @@ const emptyDriver = {
 
 export default function Drivers() {
     const { drivers, dispatch, getDriverTripStats } = useApp();
-    const [showModal, setShowModal] = useState(false);
-    const [editId, setEditId] = useState(null);
     const [formData, setFormData] = useState(emptyDriver);
+    const [errors, setErrors] = useState({});
     const [filterDuty, setFilterDuty] = useState('All');
 
     const filteredDrivers = filterDuty === 'All' ? drivers : drivers.filter(d => d.dutyStatus === filterDuty);
@@ -23,24 +22,49 @@ export default function Drivers() {
     const openAdd = () => {
         setEditId(null);
         setFormData(emptyDriver);
+        setErrors({});
         setShowModal(true);
     };
 
     const openEdit = (driver) => {
         setEditId(driver.id);
         setFormData({ ...driver, licenseCategory: driver.licenseCategory || [] });
+        setErrors({});
         setShowModal(true);
     };
 
-    const handleSave = () => {
-        if (!formData.name || !formData.licenseNumber) return;
-        const payload = { ...formData, safetyScore: Number(formData.safetyScore) };
-        if (editId) {
-            dispatch({ type: 'UPDATE_DRIVER', payload: { ...payload, id: editId } });
-        } else {
-            dispatch({ type: 'ADD_DRIVER', payload });
+    const validate = () => {
+        const newErrors = {};
+        if (!formData.name) newErrors.name = 'Driver name is required';
+        if (!formData.licenseNumber) newErrors.licenseNumber = 'License number is required';
+        const licenseRegex = /^[A-Z0-9-]+$/i;
+        if (formData.licenseNumber && !licenseRegex.test(formData.licenseNumber)) {
+            newErrors.licenseNumber = 'Invalid format (A-Z, 0-9, dashes)';
         }
-        setShowModal(false);
+        if (formData.safetyScore < 0 || formData.safetyScore > 100) {
+            newErrors.safetyScore = 'Score must be 0-100';
+        }
+        if (formData.phone && !/^\+?[0-9\s-]{10,}$/.test(formData.phone)) {
+            newErrors.phone = 'Invalid phone format';
+        }
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
+    const handleSave = async () => {
+        if (!validate()) return;
+        const payload = { ...formData, safetyScore: Number(formData.safetyScore) };
+        try {
+            if (editId) {
+                await dispatch({ type: 'UPDATE_DRIVER', payload: { ...payload, id: editId } });
+            } else {
+                await dispatch({ type: 'ADD_DRIVER', payload });
+            }
+            setShowModal(false);
+            setErrors({});
+        } catch (error) {
+            alert(error.message || 'Failed to save driver');
+        }
     };
 
     const handleDelete = (id) => {
@@ -218,12 +242,14 @@ export default function Drivers() {
             >
                 <div className="form-group">
                     <label className="form-label">Driver Name *</label>
-                    <input className="form-input" placeholder="Full name" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+                    <input className={`form-input ${errors.name ? 'error' : ''}`} placeholder="Full name" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+                    {errors.name && <div className="error-message">{errors.name}</div>}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                     <div className="form-group">
                         <label className="form-label">License Number *</label>
-                        <input className="form-input" placeholder="e.g. DL-2024-001" value={formData.licenseNumber} onChange={e => setFormData({ ...formData, licenseNumber: e.target.value })} />
+                        <input className={`form-input ${errors.licenseNumber ? 'error' : ''}`} placeholder="e.g. DL-2024-001" value={formData.licenseNumber} onChange={e => setFormData({ ...formData, licenseNumber: e.target.value })} />
+                        {errors.licenseNumber && <div className="error-message">{errors.licenseNumber}</div>}
                     </div>
                     <div className="form-group">
                         <label className="form-label">License Expiry</label>
@@ -278,11 +304,13 @@ export default function Drivers() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                     <div className="form-group">
                         <label className="form-label">Safety Score (0-100)</label>
-                        <input type="number" min="0" max="100" className="form-input" value={formData.safetyScore} onChange={e => setFormData({ ...formData, safetyScore: e.target.value })} />
+                        <input type="number" min="0" max="100" className={`form-input ${errors.safetyScore ? 'error' : ''}`} value={formData.safetyScore} onChange={e => setFormData({ ...formData, safetyScore: e.target.value })} />
+                        {errors.safetyScore && <div className="error-message">{errors.safetyScore}</div>}
                     </div>
                     <div className="form-group">
                         <label className="form-label">Phone</label>
-                        <input className="form-input" placeholder="+91 XXXXX XXXXX" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+                        <input className={`form-input ${errors.phone ? 'error' : ''}`} placeholder="+91 XXXXX XXXXX" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+                        {errors.phone && <div className="error-message">{errors.phone}</div>}
                     </div>
                 </div>
             </Modal>

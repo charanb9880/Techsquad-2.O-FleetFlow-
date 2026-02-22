@@ -1,4 +1,5 @@
-import { createContext, useContext, useReducer } from 'react';
+import { createContext, useContext, useReducer, useEffect } from 'react';
+import { api } from '../utils/api';
 import {
     initialVehicles, initialDrivers, initialTrips,
     initialMaintenance, initialFuelLogs, initialExpenses
@@ -6,15 +7,18 @@ import {
 
 const AppContext = createContext();
 
-function generateId(prefix) {
-    return `${prefix}${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-}
-
 function appReducer(state, action) {
     switch (action.type) {
+        case 'INITIALIZE':
+            return {
+                ...state,
+                ...action.payload,
+                loading: false
+            };
+
         // ==================== VEHICLES ====================
         case 'ADD_VEHICLE':
-            return { ...state, vehicles: [...state.vehicles, { ...action.payload, id: generateId('v') }] };
+            return { ...state, vehicles: [...state.vehicles, action.payload] };
 
         case 'UPDATE_VEHICLE':
             return {
@@ -48,7 +52,7 @@ function appReducer(state, action) {
 
         // ==================== DRIVERS ====================
         case 'ADD_DRIVER':
-            return { ...state, drivers: [...state.drivers, { ...action.payload, id: generateId('d') }] };
+            return { ...state, drivers: [...state.drivers, action.payload] };
 
         case 'UPDATE_DRIVER':
             return {
@@ -73,17 +77,17 @@ function appReducer(state, action) {
         case 'ADD_TRIP':
             return {
                 ...state,
-                trips: [...state.trips, { ...action.payload, id: generateId('t'), createdAt: new Date().toISOString().split('T')[0] }]
+                trips: [...state.trips, action.payload]
             };
 
         case 'DISPATCH_TRIP': {
-            const trip = state.trips.find(t => t.id === action.payload);
+            const trip = state.trips.find(t => t.id === action.payload.id);
             if (!trip) return state;
             return {
                 ...state,
                 trips: state.trips.map(t =>
-                    t.id === action.payload
-                        ? { ...t, status: 'Dispatched', dispatchedAt: new Date().toISOString().split('T')[0] }
+                    t.id === action.payload.id
+                        ? { ...t, ...action.payload }
                         : t
                 ),
                 vehicles: state.vehicles.map(v =>
@@ -96,8 +100,7 @@ function appReducer(state, action) {
         }
 
         case 'COMPLETE_TRIP': {
-            const tripId = typeof action.payload === 'object' ? action.payload.id : action.payload;
-            const finalOdometer = typeof action.payload === 'object' ? action.payload.finalOdometer : null;
+            const { id: tripId, finalOdometer } = action.payload;
             const trip = state.trips.find(t => t.id === tripId);
             if (!trip) return state;
             return {
@@ -119,12 +122,13 @@ function appReducer(state, action) {
         }
 
         case 'CANCEL_TRIP': {
-            const trip = state.trips.find(t => t.id === action.payload);
+            const { id: tripId } = action.payload;
+            const trip = state.trips.find(t => t.id === tripId);
             if (!trip) return state;
             let newState = {
                 ...state,
                 trips: state.trips.map(t =>
-                    t.id === action.payload ? { ...t, status: 'Cancelled' } : t
+                    t.id === tripId ? { ...t, status: 'Cancelled' } : t
                 ),
             };
             if (trip.status === 'Dispatched') {
@@ -142,19 +146,19 @@ function appReducer(state, action) {
         case 'ADD_MAINTENANCE':
             return {
                 ...state,
-                maintenance: [...state.maintenance, { ...action.payload, id: generateId('m') }],
+                maintenance: [...state.maintenance, action.payload],
                 vehicles: state.vehicles.map(v =>
                     v.id === action.payload.vehicleId ? { ...v, status: 'In Shop' } : v
                 )
             };
 
         case 'COMPLETE_MAINTENANCE': {
-            const record = state.maintenance.find(m => m.id === action.payload);
+            const record = state.maintenance.find(m => m.id === action.payload.id);
             if (!record) return state;
             return {
                 ...state,
                 maintenance: state.maintenance.map(m =>
-                    m.id === action.payload ? { ...m, status: 'Completed' } : m
+                    m.id === action.payload.id ? { ...m, status: 'Completed' } : m
                 ),
                 vehicles: state.vehicles.map(v =>
                     v.id === record.vehicleId ? { ...v, status: 'Available' } : v
@@ -166,14 +170,14 @@ function appReducer(state, action) {
         case 'ADD_FUEL_LOG':
             return {
                 ...state,
-                fuelLogs: [...state.fuelLogs, { ...action.payload, id: generateId('f') }]
+                fuelLogs: [...state.fuelLogs, action.payload]
             };
 
         // ==================== EXPENSES ====================
         case 'ADD_EXPENSE':
             return {
                 ...state,
-                expenses: [...state.expenses, { ...action.payload, id: generateId('e') }]
+                expenses: [...state.expenses, action.payload]
             };
 
         // ==================== INCIDENTS ====================
@@ -184,7 +188,7 @@ function appReducer(state, action) {
 
             return {
                 ...state,
-                incidents: [...(state.incidents || []), { ...action.payload, id: generateId('inc'), date: new Date().toISOString().split('T')[0], status: 'Open' }],
+                incidents: [...(state.incidents || []), { ...action.payload, id: action.payload.id, date: new Date().toISOString().split('T')[0], status: 'Open' }],
                 // Auto-freeze vehicle
                 vehicles: state.vehicles.map(v =>
                     v.id === vehicleId ? { ...v, status: 'Out of Service' } : v
@@ -213,10 +217,143 @@ const initialState = {
     fuelLogs: initialFuelLogs,
     expenses: initialExpenses,
     incidents: [],
+    activity: [],
+    loading: true
 };
 
 export function AppProvider({ children }) {
-    const [state, dispatch] = useReducer(appReducer, initialState);
+    const [state, localDispatch] = useReducer(appReducer, initialState);
+
+    useEffect(() => {
+        const fetchAll = async () => {
+            try {
+                const [vehicles, drivers, trips, maintenance, fuelLogs, expenses, activity] = await Promise.all([
+                    api.getVehicles(),
+                    api.getDrivers(),
+                    api.getTrips(),
+                    api.getMaintenance(),
+                    api.getFuelLogs(),
+                    api.getExpenses(),
+                    api.getActivity()
+                ]);
+
+                localDispatch({
+                    type: 'INITIALIZE',
+                    payload: { vehicles, drivers, trips, maintenance, fuelLogs, expenses, activity }
+                });
+            } catch (error) {
+                console.error('Failed to fetch data:', error);
+            }
+        };
+        fetchAll();
+    }, []);
+
+    const dispatch = async (action) => {
+        try {
+            switch (action.type) {
+                case 'ADD_VEHICLE': {
+                    const res = await api.addVehicle(action.payload);
+                    localDispatch({ type: 'ADD_VEHICLE', payload: res });
+                    break;
+                }
+                case 'UPDATE_VEHICLE': {
+                    const res = await api.updateVehicle(action.payload.id, action.payload);
+                    localDispatch({ type: 'UPDATE_VEHICLE', payload: res });
+                    break;
+                }
+                case 'DELETE_VEHICLE': {
+                    await api.deleteVehicle(action.payload);
+                    localDispatch({ type: 'DELETE_VEHICLE', payload: action.payload });
+                    break;
+                }
+                case 'ADD_DRIVER': {
+                    const res = await api.addDriver(action.payload);
+                    localDispatch({ type: 'ADD_DRIVER', payload: res });
+                    break;
+                }
+                case 'UPDATE_DRIVER': {
+                    const res = await api.updateDriver(action.payload.id, action.payload);
+                    localDispatch({ type: 'UPDATE_DRIVER', payload: res });
+                    break;
+                }
+                case 'DELETE_DRIVER': {
+                    await api.deleteDriver(action.payload);
+                    localDispatch({ type: 'DELETE_DRIVER', payload: action.payload });
+                    break;
+                }
+                case 'ADD_TRIP': {
+                    const payload = { ...action.payload, createdAt: new Date().toISOString().split('T')[0], status: 'Draft' };
+                    const res = await api.addTrip(payload);
+                    localDispatch({ type: 'ADD_TRIP', payload: res });
+                    break;
+                }
+                case 'DISPATCH_TRIP': {
+                    const trip = state.trips.find(t => t.id === action.payload);
+                    if (!trip) break;
+                    const updatedTrip = { ...trip, status: 'Dispatched', dispatchedAt: new Date().toISOString().split('T')[0] };
+                    const res = await api.updateTrip(trip.id, updatedTrip);
+                    // Also update vehicle and driver status in DB
+                    const vehicle = state.vehicles.find(v => v.id === trip.vehicleId);
+                    const driver = state.drivers.find(d => d.id === trip.driverId);
+                    if (vehicle) await api.updateVehicle(vehicle.id, { ...vehicle, status: 'On Trip' });
+                    if (driver) await api.updateDriver(driver.id, { ...driver, dutyStatus: 'On Duty' });
+                    localDispatch({ type: 'DISPATCH_TRIP', payload: res });
+                    break;
+                }
+                case 'COMPLETE_TRIP': {
+                    const tripId = typeof action.payload === 'object' ? action.payload.id : action.payload;
+                    const finalOdometer = typeof action.payload === 'object' ? action.payload.finalOdometer : null;
+                    const trip = state.trips.find(t => t.id === tripId);
+                    if (!trip) break;
+                    const updatedTrip = { ...trip, status: 'Completed', completedAt: new Date().toISOString().split('T')[0] };
+                    const res = await api.updateTrip(trip.id, updatedTrip);
+                    // Update vehicle and driver status in DB
+                    const vehicle = state.vehicles.find(v => v.id === trip.vehicleId);
+                    const driver = state.drivers.find(d => d.id === trip.driverId);
+                    if (vehicle) await api.updateVehicle(vehicle.id, { ...vehicle, status: 'Available', ...(finalOdometer ? { odometer: Number(finalOdometer) } : {}) });
+                    if (driver) await api.updateDriver(driver.id, { ...driver, dutyStatus: 'Off Duty' });
+                    localDispatch({ type: 'COMPLETE_TRIP', payload: { id: tripId, finalOdometer } });
+                    break;
+                }
+                case 'CANCEL_TRIP': {
+                    const trip = state.trips.find(t => t.id === action.payload);
+                    if (!trip) break;
+                    const updatedTrip = { ...trip, status: 'Cancelled' };
+                    const res = await api.updateTrip(trip.id, updatedTrip);
+                    if (trip.status === 'Dispatched') {
+                        const vehicle = state.vehicles.find(v => v.id === trip.vehicleId);
+                        const driver = state.drivers.find(d => d.id === trip.driverId);
+                        if (vehicle) await api.updateVehicle(vehicle.id, { ...vehicle, status: 'Available' });
+                        if (driver) await api.updateDriver(driver.id, { ...driver, dutyStatus: 'Off Duty' });
+                    }
+                    localDispatch({ type: 'CANCEL_TRIP', payload: { id: action.payload } });
+                    break;
+                }
+                case 'ADD_MAINTENANCE': {
+                    const res = await api.addMaintenance(action.payload);
+                    const vehicle = state.vehicles.find(v => v.id === action.payload.vehicleId);
+                    if (vehicle) await api.updateVehicle(vehicle.id, { ...vehicle, status: 'In Shop' });
+                    localDispatch({ type: 'ADD_MAINTENANCE', payload: res });
+                    break;
+                }
+                case 'ADD_FUEL_LOG': {
+                    const res = await api.addFuelLog(action.payload);
+                    localDispatch({ type: 'ADD_FUEL_LOG', payload: res });
+                    break;
+                }
+                case 'ADD_EXPENSE': {
+                    const res = await api.addExpense(action.payload);
+                    localDispatch({ type: 'ADD_EXPENSE', payload: res });
+                    break;
+                }
+                // Fallback for actions not yet converted to API
+                default:
+                    localDispatch(action);
+            }
+        } catch (error) {
+            console.error('API Error:', error);
+        }
+    };
 
     // Helper: get vehicle total cost
     const getVehicleTotalCost = (vehicleId) => {

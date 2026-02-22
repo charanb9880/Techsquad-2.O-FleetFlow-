@@ -11,7 +11,7 @@ export default function Trips() {
     const [formData, setFormData] = useState({
         vehicleId: '', driverId: '', cargoWeight: '', cargoDesc: '', origin: '', destination: '', status: 'Draft'
     });
-    const [validationError, setValidationError] = useState('');
+    const [errors, setErrors] = useState({});
 
     // Complete trip modal state
     const [showCompleteModal, setShowCompleteModal] = useState(false);
@@ -53,50 +53,54 @@ export default function Trips() {
         return d ? d.name : 'Unknown';
     };
 
-    const handleCreate = () => {
-        setValidationError('');
+    const validate = () => {
+        const newErrors = {};
+        if (!formData.vehicleId) newErrors.vehicleId = 'Vehicle is required';
+        if (!formData.driverId) newErrors.driverId = 'Driver is required';
+        if (!formData.cargoWeight) newErrors.cargoWeight = 'Cargo weight is required';
+        if (!formData.origin) newErrors.origin = 'Origin is required';
+        if (!formData.destination) newErrors.destination = 'Destination is required';
 
-        if (!formData.vehicleId || !formData.driverId || !formData.cargoWeight) {
-            setValidationError('Please fill all required fields.');
-            return;
-        }
-
-        const vehicle = vehicles.find(v => v.id === formData.vehicleId);
-        const cargoWeight = Number(formData.cargoWeight);
-
-        if (vehicle && cargoWeight > vehicle.maxCapacity) {
-            setValidationError(
-                `Cargo weight (${(cargoWeight / 1000).toFixed(1)}T) exceeds vehicle max capacity (${(vehicle.maxCapacity / 1000).toFixed(0)}T). Please reduce cargo or select a different vehicle.`
-            );
-            return;
-        }
-
-        const selectedDriver = drivers.find(d => d.id === formData.driverId);
-        if (selectedDriver && selectedDriver.licenseStatus === 'Expired') {
-            setValidationError('Cannot assign a driver with an expired license.');
-            return;
-        }
-
-        // License category validation
-        if (vehicle && selectedDriver && selectedDriver.licenseCategory && !selectedDriver.licenseCategory.includes(vehicle.type)) {
-            setValidationError(
-                `Driver "${selectedDriver.name}" does not have a "${vehicle.type}" license category. Required for ${vehicle.name}.`
-            );
-            return;
-        }
-
-        dispatch({
-            type: 'ADD_TRIP',
-            payload: {
-                ...formData,
-                cargoWeight,
-                dispatchedAt: null,
-                completedAt: null,
+        if (formData.vehicleId && formData.cargoWeight) {
+            const vehicle = vehicles.find(v => v.id === formData.vehicleId);
+            if (vehicle && Number(formData.cargoWeight) > vehicle.maxCapacity) {
+                newErrors.cargoWeight = `Exceeds max capacity (${(vehicle.maxCapacity / 1000).toFixed(0)}T)`;
             }
-        });
+        }
 
-        setShowModal(false);
-        setFormData({ vehicleId: '', driverId: '', cargoWeight: '', cargoDesc: '', origin: '', destination: '', status: 'Draft' });
+        if (formData.driverId) {
+            const selectedDriver = drivers.find(d => d.id === formData.driverId);
+            if (selectedDriver && selectedDriver.licenseStatus === 'Expired') {
+                newErrors.driverId = 'Driver license is expired';
+            }
+            if (selectedVehicle && selectedDriver && selectedDriver.licenseCategory && !selectedDriver.licenseCategory.includes(selectedVehicle.type)) {
+                newErrors.driverId = `Driver lacks ${selectedVehicle.type} license`;
+            }
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
+    const handleCreate = async () => {
+        if (!validate()) return;
+
+        try {
+            await dispatch({
+                type: 'ADD_TRIP',
+                payload: {
+                    ...formData,
+                    cargoWeight: Number(formData.cargoWeight),
+                    dispatchedAt: null,
+                    completedAt: null,
+                }
+            });
+            setShowModal(false);
+            setFormData({ vehicleId: '', driverId: '', cargoWeight: '', cargoDesc: '', origin: '', destination: '', status: 'Draft' });
+            setErrors({});
+        } catch (error) {
+            alert(error.message || 'Failed to create trip');
+        }
     };
 
     const handleDispatch = (id) => dispatch({ type: 'DISPATCH_TRIP', payload: id });
@@ -251,16 +255,16 @@ export default function Trips() {
                     </>
                 }
             >
-                {validationError && (
+                {Object.keys(errors).length > 0 && (
                     <div style={{
                         display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)',
                         padding: 'var(--space-3) var(--space-4)',
                         background: 'var(--color-danger-50)', borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--color-danger-100)', color: 'var(--color-danger-700)',
-                        fontSize: 'var(--font-size-sm)'
+                        fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)'
                     }}>
                         <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                        {validationError}
+                        Please correct the errors highlighted below.
                     </div>
                 )}
 
@@ -339,7 +343,7 @@ export default function Trips() {
                         value={formData.vehicleId}
                         onChange={e => {
                             setFormData({ ...formData, vehicleId: e.target.value, driverId: '' });
-                            setValidationError('');
+                            setErrors(prev => ({ ...prev, vehicleId: '' }));
                         }}
                     >
                         <option value="">Choose an available vehicle...</option>
@@ -356,7 +360,10 @@ export default function Trips() {
                     <select
                         className="form-select"
                         value={formData.driverId}
-                        onChange={e => setFormData({ ...formData, driverId: e.target.value })}
+                        onChange={e => {
+                            setFormData({ ...formData, driverId: e.target.value });
+                            setErrors(prev => ({ ...prev, driverId: '' }));
+                        }}
                     >
                         <option value="">Choose an available driver...</option>
                         {availableDrivers.map(d => (
@@ -377,11 +384,12 @@ export default function Trips() {
                     <label className="form-label">Cargo Weight (kg) *</label>
                     <input
                         type="number"
-                        className={`form-input ${validationError.includes('Cargo weight') ? 'error' : ''}`}
+                        className={`form-input ${errors.cargoWeight ? 'error' : ''}`}
                         placeholder="e.g. 15000"
                         value={formData.cargoWeight}
-                        onChange={e => { setFormData({ ...formData, cargoWeight: e.target.value }); setValidationError(''); }}
+                        onChange={e => { setFormData({ ...formData, cargoWeight: e.target.value }); setErrors(prev => ({ ...prev, cargoWeight: '' })); }}
                     />
+                    {errors.cargoWeight && <div className="error-message">{errors.cargoWeight}</div>}
                     {formData.vehicleId && (
                         <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)' }}>
                             Vehicle max capacity: {(vehicles.find(v => v.id === formData.vehicleId)?.maxCapacity / 1000 || 0).toFixed(0)}T
@@ -403,20 +411,22 @@ export default function Trips() {
                     <div className="form-group">
                         <label className="form-label">Origin</label>
                         <input
-                            className="form-input"
+                            className={`form-input ${errors.origin ? 'error' : ''}`}
                             placeholder="e.g. Mumbai"
                             value={formData.origin}
-                            onChange={e => setFormData({ ...formData, origin: e.target.value })}
+                            onChange={e => { setFormData({ ...formData, origin: e.target.value }); setErrors(prev => ({ ...prev, origin: '' })); }}
                         />
+                        {errors.origin && <div className="error-message">{errors.origin}</div>}
                     </div>
                     <div className="form-group">
                         <label className="form-label">Destination</label>
                         <input
-                            className="form-input"
+                            className={`form-input ${errors.destination ? 'error' : ''}`}
                             placeholder="e.g. Delhi"
                             value={formData.destination}
-                            onChange={e => setFormData({ ...formData, destination: e.target.value })}
+                            onChange={e => { setFormData({ ...formData, destination: e.target.value }); setErrors(prev => ({ ...prev, destination: '' })); }}
                         />
+                        {errors.destination && <div className="error-message">{errors.destination}</div>}
                     </div>
                 </div>
             </Modal>

@@ -14,6 +14,7 @@ export default function Vehicles() {
     const [showModal, setShowModal] = useState(false);
     const [editId, setEditId] = useState(null);
     const [formData, setFormData] = useState(emptyVehicle);
+    const [errors, setErrors] = useState({});
     const [filterStatus, setFilterStatus] = useState('All');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [incidentVehicleId, setIncidentVehicleId] = useState(null);
@@ -26,17 +27,33 @@ export default function Vehicles() {
     const openAdd = () => {
         setEditId(null);
         setFormData(emptyVehicle);
+        setErrors({});
         setShowModal(true);
     };
 
     const openEdit = (vehicle) => {
         setEditId(vehicle.id);
         setFormData({ ...vehicle });
+        setErrors({});
         setShowModal(true);
     };
 
-    const handleSave = () => {
-        if (!formData.name || !formData.licensePlate) return;
+    const validate = () => {
+        const newErrors = {};
+        if (!formData.name) newErrors.name = 'Vehicle name is required';
+        if (formData.name && formData.name.length < 3) newErrors.name = 'Name must be at least 3 characters';
+        if (!formData.licensePlate) newErrors.licensePlate = 'License plate is required';
+        const plateRegex = /^[A-Z0-9- ]+$/i;
+        if (formData.licensePlate && !plateRegex.test(formData.licensePlate)) {
+            newErrors.licensePlate = 'Invalid format (A-Z, 0-9, dashes only)';
+        }
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
+    const handleSave = async () => {
+        if (!validate()) return;
+
         const payload = {
             ...formData,
             maxCapacity: Number(formData.maxCapacity) || 0,
@@ -44,12 +61,18 @@ export default function Vehicles() {
             acquisitionCost: Number(formData.acquisitionCost) || 0,
             revenue: Number(formData.revenue) || 0,
         };
-        if (editId) {
-            dispatch({ type: 'UPDATE_VEHICLE', payload: { ...payload, id: editId } });
-        } else {
-            dispatch({ type: 'ADD_VEHICLE', payload });
+
+        try {
+            if (editId) {
+                await dispatch({ type: 'UPDATE_VEHICLE', payload: { ...payload, id: editId } });
+            } else {
+                await dispatch({ type: 'ADD_VEHICLE', payload });
+            }
+            setShowModal(false);
+            setErrors({});
+        } catch (error) {
+            alert(error.message || 'Failed to save vehicle');
         }
-        setShowModal(false);
     };
 
     const handleDelete = (id) => {
@@ -210,11 +233,12 @@ export default function Vehicles() {
                 <div className="form-group">
                     <label className="form-label">Vehicle Name *</label>
                     <input
-                        className="form-input"
+                        className={`form-input ${errors.name ? 'error' : ''}`}
                         placeholder="e.g. Volvo FH16"
                         value={formData.name}
                         onChange={e => setFormData({ ...formData, name: e.target.value })}
                     />
+                    {errors.name && <div className="error-message">{errors.name}</div>}
                 </div>
                 <div className="form-group">
                     <label className="form-label">Model Year</label>
@@ -228,11 +252,12 @@ export default function Vehicles() {
                 <div className="form-group">
                     <label className="form-label">License Plate *</label>
                     <input
-                        className="form-input"
+                        className={`form-input ${errors.licensePlate ? 'error' : ''}`}
                         placeholder="e.g. KA-01-AB-1234"
                         value={formData.licensePlate}
                         onChange={e => setFormData({ ...formData, licensePlate: e.target.value })}
                     />
+                    {errors.licensePlate && <div className="error-message">{errors.licensePlate}</div>}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                     <div className="form-group">
